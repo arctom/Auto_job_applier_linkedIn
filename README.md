@@ -1,28 +1,6 @@
 # LinkedIn AI Auto Job Applier 🤖
 This is an web scraping bot that automates the process of job applications on LinkedIn. It searches for jobs relevant to you, answers all questions in application form, customizes your resume based on the collected job information, such as skills required, description, about company, etc. and applies to the job. Can apply 100+ jobs in less than 1 hour.
 
-
-## 📽️ See it in Action
-[![Auto Job Applier demo video](https://github.com/GodsScion/Auto_job_applier_linkedIn/assets/100998531/429f7753-ebb0-499b-bc5e-5b4ee28c4f69)](https://youtu.be/gMbB1fWZDHw)
-Click on above image to watch the demo or use this link https://youtu.be/gMbB1fWZDHw
-
-
-## ✨ Content
-- [Introduction](#linkedin-ai-auto-job-applier-)
-- [Demo Video](#%EF%B8%8F-see-it-in-action)
-- [Index](#-content)
-- [Install](#%EF%B8%8F-how-to-install)
-- [Configure](#-how-to-configure)
-- [Features](#-feature-list)
-- [My letter for YOU ❤️](#%EF%B8%8F-my-heartfelt-letter-to-you-%EF%B8%8F)
-- [Updates](#%EF%B8%8F-update-history)
-- [Disclaimer](#-disclaimer)
-- [Terms and Conditions](#%EF%B8%8F-terms-and-conditions)
-- [License](#%EF%B8%8F-license)
-- [Socials](#-socials)
-- [Support and Discussions](#-community-support-and-discussions)
-
-
 ## ⚙️ How to install
 1. [Python 3](https://www.python.org/) or above. Visit https://www.python.org/downloads/ to download and install Python, or for windows you could visit Microsoft Store and search for "Python". **Please make sure Python is added to Path in System Environment Variables**.
 2. Install necessary [Undetected Chromedriver](https://pypi.org/project/undetected-chromedriver/), [PyAutoGUI](https://pypi.org/project/PyAutoGUI/) and [Setuptools](https://pypi.org/project/setuptools/) packages. After Python is installed, OPEN a console/terminal or shell, Use below command that uses the [pip](https://pip.pypa.io/en/stable) command-line tool to install these 3 package.
@@ -30,7 +8,7 @@ Click on above image to watch the demo or use this link https://youtu.be/gMbB1fW
   pip install undetected-chromedriver pyautogui setuptools
   ```
 3. Download and install latest version of [Google Chrome](https://www.google.com/chrome) in it's default location, visit https://www.google.com/chrome to download it's installer.
-4. Clone the current git repo or download it as a zip file, url to the latest update https://github.com/GodsScion/Auto_job_applier_linkedIn.
+4. Clone the current git repo or download it as a zip file, url to the latest update.
 5. (Not needed if you set `stealth_mode = True` in `config/settings.py` ) Download and install the appropriate [Chrome Driver](https://googlechromelabs.github.io/chrome-for-testing/) for Google Chrome and paste it in the location Chrome was installed, visit https://googlechromelabs.github.io/chrome-for-testing/ to download.
   <br> <br>
   ***OR*** 
@@ -121,22 +99,19 @@ As you continue your job search, I hope this tool has provided you with valuable
 
 To continue improving and maintaining this tool, I rely on the support of users like you. If you believe in its mission and want to contribute, you can support me by sharing about this project with your peers and network.
 
-If you need a post to communicate about it: https://www.linkedin.com/posts/saivigneshgolla_jobsearch-jobapplication-careerdevelopment-activity-7166416367628341249-WE_8
-
 By doing so, you can empower others in their job hunt, just as you've been empowered.. Every contribution, big or small, makes a significant impact!
 
 As an independent developer, I pour my heart and soul into creating tools like this, driven by the genuine desire to make a positive impact. Your support, whether through donations or simply spreading the word, means the world to me and helps keep this project alive and thriving.
 
 You can connect and reach me out at:
-- LinkedIn  :  https://www.linkedin.com/in/saivigneshgolla/
-- Email     :  saivigneshgolla@outlook.com
+- LinkedIn  :  https://www.linkedin.com/in/tom-arc
 
 <br>
 
 Thank you for being part of this journey, and remember that together, we can make a real difference in the lives of job seekers worldwide.
 
 With heartfelt appreciation, <br>
-**Sai Vignesh Golla**
+**Tom Arc**
 
 <br>
 <br>
@@ -198,7 +173,7 @@ With heartfelt appreciation, <br>
 
 ## 📜 Disclaimer
 
-**This program is for educational purposes only. By downloading, using, copying, replicating, or interacting with this program or its code, you acknowledge and agree to abide by all the Terms, Conditions, Policies, and Licenses mentioned, which are subject to modification without prior notice. The responsibility of staying informed of any changes or updates bears upon yourself. For the latest Terms & Conditions, Licenses, or Policies, please refer to [Auto Job Applier](https://github.com/GodsScion/Auto_job_applier_linkedIn). Additionally, kindly adhere to and comply with LinkedIn's terms of service and policies pertaining to web scraping. Usage is at your own risk. The creators and contributors of this program emphasize that they bear no responsibility or liability for any misuse, damages, or legal consequences resulting from its usage.**
+**This program is for educational purposes only. By downloading, using, copying, replicating, or interacting with this program or its code, you acknowledge and agree to abide by all the Terms, Conditions, Policies, and Licenses mentioned, which are subject to modification without prior notice. The responsibility of staying informed of any changes or updates bears upon yourself. For the latest Terms & Conditions, Licenses, or Policies. Additionally, kindly adhere to and comply with LinkedIn's terms of service and policies pertaining to web scraping. Usage is at your own risk. The creators and contributors of this program emphasize that they bear no responsibility or liability for any misuse, damages, or legal consequences resulting from its usage.**
 
 
 ## 🏛️ Terms and Conditions
@@ -215,39 +190,8 @@ Please consider the following:
 
 - **Chrome Driver**: This program utilizes the Chrome Driver for web scraping. Please review and comply with the terms and conditions specified for [Chrome Driver](https://chromedriver.chromium.org/home).
 
-
-## ⚖️ License
-
-Copyright (C) 2024 Sai Vignesh Golla  <saivigneshgolla@outlook.com>
-
-This program is free software: you can redistribute it and/or modify it under the terms of the GNU Affero General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
-
-This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more details.
-
-You should have received a copy of the GNU Affero General Public License along with this program. If not, see <https://www.gnu.org/licenses/>.
-
-See [AGPLv3 LICENSE](LICENSE) for more info.
-
-
 <br>
 
 ## 🐧 Socials
-- **LinkedIn** : https://www.linkedin.com/in/saivigneshgolla/
-- **Email**    : saivigneshgolla@outlook.com
-- **X/Twitter**: https://x.com/gods_scion
-- **Discord**  : godsscion
+- **LinkedIn** : https://www.linkedin.com/in/tom-arc
 
-## 🙌 Community Support and Discussions
-- **Discord Server** : https://discord.gg/fFp7uUzWCY
-- **GitHub**
-    - [All Discussions](https://github.com/GodsScion/Auto_job_applier_linkedIn/discussions)
-    - [Announcements](https://github.com/GodsScion/Auto_job_applier_linkedIn/discussions/categories/announcements)
-    - [General](https://github.com/GodsScion/Auto_job_applier_linkedIn/discussions/categories/general)
-    - [Feature requests or Ideas](https://github.com/GodsScion/Auto_job_applier_linkedIn/discussions/categories/feature-requests-or-ideas)
-    - [Polls](https://github.com/GodsScion/Auto_job_applier_linkedIn/discussions/categories/polls)
-    - [Community Flex](https://github.com/GodsScion/Auto_job_applier_linkedIn/discussions/categories/community-flex)
-    - [Support Q&A](https://github.com/GodsScion/Auto_job_applier_linkedIn/discussions/categories/support-q-a)
-
----
-
-[back to the top](#linkedin-ai-auto-job-applier-)

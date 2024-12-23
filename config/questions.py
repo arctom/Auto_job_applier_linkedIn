@@ -1,13 +1,9 @@
 '''
-Author:     Sai Vignesh Golla
-LinkedIn:   https://www.linkedin.com/in/saivigneshgolla/
+Author:     Tom Arc
+LinkedIn:   https://www.linkedin.com/in/tom-arc
 
-Copyright (C) 2024 Sai Vignesh Golla
+Copyright (C) 2024 Tom Arc
 
-License:    GNU Affero General Public License
-            https://www.gnu.org/licenses/agpl-3.0.en.html
-            
-GitHub:     https://github.com/GodsScion/Auto_job_applier_linkedIn
 
 '''
 
@@ -18,30 +14,30 @@ GitHub:     https://github.com/GodsScion/Auto_job_applier_linkedIn
 # >>>>>>>>>>> Easy Apply Questions & Inputs <<<<<<<<<<<
 
 # Give an relative path of your default resume to be uploaded. If file in not found, will continue using your previously uploaded resume in LinkedIn.
-default_resume_path = "all resumes/default/resume.pdf"      # (In Development)
+default_resume_path = "all resumes/default/Tom_Arc_CV.pdf"      # (In Development)
 
 # What do you want to answer for questions that ask about years of experience you have, this is different from current_experience? 
-years_of_experience = "5"          # A number in quotes Eg: "0","1","2","3","4", etc.
+years_of_experience = "2"          # A number in quotes Eg: "0","1","2","3","4", etc.
 
 # Do you need visa sponsorship now or in future?
-require_visa = "No"               # "Yes" or "No"
+require_visa = "Yes"               # "Yes" or "No"
 
 # What is the link to your portfolio website, leave it empty as "", if you want to leave this question unanswered
-website = "https://github.com/GodsScion"                        # "www.example.bio" or "" and so on....
+website = "https://github.com/arctom"                        # "www.example.bio" or "" and so on....
 
 # Please provide the link to your LinkedIn profile.
-linkedIn = "https://www.linkedin.com/in/saivigneshgolla/"       # "https://www.linkedin.com/in/example" or "" and so on...
+linkedIn = "https://www.linkedin.com/in/tom-arc/"       # "https://www.linkedin.com/in/example" or "" and so on...
 
 # What is the status of your citizenship? # If left empty as "", tool will not answer the question. However, note that some companies make it compulsory to be answered
 # Valid options are: "U.S. Citizen/Permanent Resident", "Non-citizen allowed to work for any employer", "Non-citizen allowed to work for current employer", "Non-citizen seeking work authorization", "Canadian Citizen/Permanent Resident" or "Other"
-us_citizenship = "U.S. Citizen/Permanent Resident"
+us_citizenship = "Non-citizen seeking work authorization"
 
 
 
 ## SOME ANNOYING QUESTIONS BY COMPANIES 🫠 ##
 
 # What to enter in your desired salary question (American and European), What is your expected CTC (South Asian and others)?, only enter in numbers as some companies only allow numbers,
-desired_salary = 1200000          # 80000, 90000, 100000 or 120000 and so on... Do NOT use quotes
+desired_salary = 80000          # 80000, 90000, 100000 or 120000 and so on... Do NOT use quotes
 '''
 Note: If question has the word "lakhs" in it (Example: What is your expected CTC in lakhs), 
 then it will add '.' before last 5 digits and answer. Examples: 
@@ -53,7 +49,7 @@ And if asked in months, then it will divide by 12 and answer. Examples:
 '''
 
 # What is your current CTC? Some companies make it compulsory to be answered in numbers...
-current_ctc = 800000            # 800000, 900000, 1000000 or 1200000 and so on... Do NOT use quotes
+current_ctc = 55000           # 800000, 900000, 1000000 or 1200000 and so on... Do NOT use quotes
 '''
 Note: If question has the word "lakhs" in it (Example: What is your current CTC in lakhs), 
 then it will add '.' before last 5 digits and answer. Examples: 
@@ -81,22 +77,22 @@ then it will divide by 30 or 7 and answer respectively. Examples:
 '''
 
 # Your LinkedIn headline in quotes Eg: "Software Engineer @ Google, Masters in Computer Science", "Recent Grad Student @ MIT, Computer Science"
-headline = "Full Stack Developer with Masters in Computer Science and 4+ years of experience" # "Headline" or "" to leave this question unanswered
+headline = "Machine Learning Engineer Expert | Artifical Intelligence Specialist | Development Leader" # "Headline" or "" to leave this question unanswered
 
 # Your summary in quotes, use \n to add line breaks
-summary = "I'm a Senior Software Engineer at Amazon with Masters in CS and 4+ years of experience in developing and maintaining Full Stack Web applications and cloud solutions.\n Specialized in React, Node.js, and Python."
+summary = "Machine Learning Engineer and Data Scientist with a strong academic background in Data Science and Mathematics from Tecnológico de Monterrey. Based in Chihuahua, México, I bring experience in building machine learning models, data-driven solutions, and scalable software applications. My technical abilities span cloud computing, advanced analytics, and AI-powered solutions for business applications. Throughout my career, I've had the privilege of leading cross-functional teams and delivering projects using technologies such as Python, TensorFlow, FastAPI, React, SQL Server, IBM Watson X, AWS, and GCP. At NDS Cognitive Labs, I directed a team to create a generative AI chatbot using RAG technology, enhancing customer service by automating 30% of retraining tasks. Some key highlights of my experience include: Leading a 6-person team to design SaaS platforms for trend analysis and interactive data visualization. Developing a virtual sales assistant that boosted conversion rates by 5% for a major insurance company. Building real-time data dashboards for leadership teams, streamlining decision-making processes. I am fluent in English, Spanish, and French, collaborating with global teams and clients. My leadership skills, paired with good project management and effective communication, allow me to drive projects from concept to deployment. Technical skills: Python, TensorFlow, NLP, RAG, AWS, GCP, MongoDB, SQL, Power BI, FastAPI, React, Kubernetes, Docker, Agile/Scrum methodologies. I’m seeking new challenges where I can apply my skills in machine learning, AI, cloud computing, and data analysis to deliver impactful solutions. Let's connect to discuss how we can drive innovation and success together."
 '''
 Note: If left empty as "", the tool will not answer the question. However, note that some companies make it compulsory to be answered. Use \n to add line breaks.
 ''' 
 
 # Your cover letter in quotes, use \n to add line breaks (This question makes sense though)
-cover_letter = "Cover Letter"
+cover_letter = "Dear Hiring Manager, I am writing to express my strong interest in the position. As a passionate and experienced professional in the field of AI and machine learning, I am thrilled at the opportunity to contribute to your cutting-edge projects and help solve complex problems for your clients. With over two years of experience as a Machine Learning Engineer at NDS Cognitive Labs, I have developed a robust skill set that aligns perfectly with your requirements. My expertise in Python, TensorFlow, and scikit-learn has enabled me to design and implement various machine learning models, including predictive AI systems and generative AI chatbots. For instance, I recently led a team in creating an AI-powered virtual sales assistant using RAG technology, which increased conversion rates by 5%. This project showcased my ability to analyze complex datasets, optimize algorithms, and deliver tangible business results. My experience extends to collaborating with cross-functional teams, a key aspect of the role you've described. I've successfully directed teams of 4-6 people in developing M-SaaS platforms and implementing advanced NLP techniques, demonstrating my strong communication and leadership skills. Moreover, my background in data science and mathematics, coupled with my continuous learning approach (evidenced by my certifications in MongoDB, GCP, and Kubernetes), positions me to stay at the forefront of machine learning advancements and contribute innovative solutions to your projects. Thank you for considering my application. I look forward to the possibility of speaking with you further about this exciting opportunity. Sincerely, Tom Arc, arctomb@gmail.com, +52 (625) 589 8930"
 '''
 Note: If left empty as "", the tool will not answer the question. However, note that some companies make it compulsory to be answered. Use \n to add line breaks.
 ''' 
 
 # Name of your most recent employer
-recent_employer = "Not Applicable" # "", "Lala Company", "Google", "Snowflake", "Databricks"
+recent_employer = "NDS Cognitive Labs" # "", "Lala Company", "Google", "Snowflake", "Databricks"
 
 # Example question: "On a scale of 1-10 how much experience do you have building web or mobile applications? 1 being very little or only in school, 10 being that you have built and launched applications to real users"
 confidence_level = "8"             # Any number between "1" to "10" including 1 and 10, put it in quotes ""
@@ -117,25 +113,3 @@ pause_at_failed_question = True    # True or False ,   Will be treated as False 
 
 # Do you want to overwrite previous answers?
 overwrite_previous_answers = False # True or False
-
-
-
-
-
-
-############################################################################################################
-'''
-THANK YOU for using my tool 😊! Wishing you the best in your job hunt 🙌🏻!
-
-Sharing is caring! If you found this tool helpful, please share it with your peers 🥺. Your support keeps this project alive.
-
-Support my work on <PATREON_LINK>. Together, we can help more job seekers.
-
-As an independent developer, I pour my heart and soul into creating tools like this, driven by the genuine desire to make a positive impact.
-
-Your support, whether through donations big or small or simply spreading the word, means the world to me and helps keep this project alive and thriving.
-
-Gratefully yours 🙏🏻,
-Sai Vignesh Golla
-'''
-############################################################################################################

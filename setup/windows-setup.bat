@@ -1,14 +1,10 @@
-:: Author:     Sai Vignesh Golla
-:: LinkedIn:   https://www.linkedin.com/in/saivigneshgolla/
+:: Author:     Tom Arc
+:: LinkedIn:   https://www.linkedin.com/in/tom-arc
 
-:: Copyright (C) 2024 Sai Vignesh Golla
+:: Copyright (C) 2024 Tom Arc
 
 :: License:    GNU Affero General Public License
 ::             https://www.gnu.org/licenses/agpl-3.0.en.html
-
-:: GitHub:     https://github.com/GodsScion/Auto_job_applier_linkedIn
-
-
 
 @echo off
 setlocal enabledelayedexpansion
