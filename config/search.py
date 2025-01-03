@@ -32,7 +32,7 @@ search_location = "United States"               # Some valid examples: "", "Unit
 switch_number = 25                 # Only numbers greater than 0... Don't put in quotes
 
 # Do you want to randomize the search order for search_terms?
-randomize_search_order = False     # True of False
+randomize_search_order = False     # True of False, Note: True or False are case-sensitive
 
 
 # >>>>>>>>>>> Job Search Filters <<<<<<<<<<<
@@ -56,7 +56,7 @@ sort_by = "Most relevant"                       # "Most recent", "Most relevant"
 date_posted = "Past 24 hours"         # "Any time", "Past month", "Past week", "Past 24 hours" or ("" to not select)
 salary = ""                        # "$40,000+", "$60,000+", "$80,000+", "$100,000+", "$120,000+", "$140,000+", "$160,000+", "$180,000+", "$200,000+"
 
-easy_apply_only = True             # True or False
+easy_apply_only = True             # True or False, Note: True or False are case-sensitive
 
 experience_level = ["Entry level","Associate","Mid-Senior level"]              # (multiple select) "Internship", "Entry level", "Associate", "Mid-Senior level", "Director", "Executive"
 job_type = ["Full-time"]                      # (multiple select) "Full-time", "Part-time", "Contract", "Temporary", "Volunteer", "Internship", "Other"
@@ -76,6 +76,12 @@ in_your_network = False            # True or False, Note: True or False are case
 fair_chance_employer = False       # True or False, Note: True or False are case-sensitive
 
 
+## >>>>>>>>>>> RELATED SETTING <<<<<<<<<<<
+
+# Pause after applying filters to let you modify the search results and filters?
+pause_after_filters = True         # True or False, Note: True or False are case-sensitive
+
+##
 
 
 
@@ -100,3 +106,25 @@ did_masters = False                # True or False
 # Avoid applying to jobs if their required experience is above your current_experience. (Set value as -1 if you want to apply to all ignoring their required experience...)
 current_experience = 5             # Integers > -2 (Ex: -1, 0, 1, 2, 3, 4...)
 ##
+
+
+
+
+
+
+############################################################################################################
+'''
+THANK YOU for using my tool 😊! Wishing you the best in your job hunt 🙌🏻!
+
+Sharing is caring! If you found this tool helpful, please share it with your peers 🥺. Your support keeps this project alive.
+
+Support my work on <PATREON_LINK>. Together, we can help more job seekers.
+
+As an independent developer, I pour my heart and soul into creating tools like this, driven by the genuine desire to make a positive impact.
+
+Your support, whether through donations big or small or simply spreading the word, means the world to me and helps keep this project alive and thriving.
+
+Gratefully yours 🙏🏻,
+Sai Vignesh Golla
+'''
+############################################################################################################

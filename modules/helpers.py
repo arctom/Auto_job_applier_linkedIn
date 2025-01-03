@@ -5,7 +5,7 @@ LinkedIn:   https://www.linkedin.com/in/tom-arc
 Copyright (C) 2024 Tom Arc
 
 
-version:    24.12.3.10.30
+version:    24.12.29.12.30
 '''
 
 
