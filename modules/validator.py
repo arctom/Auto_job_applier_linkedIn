@@ -140,6 +140,7 @@ def validate_search() -> None | ValueError | TypeError:
     check_boolean(security_clearance, "security_clearance")
     check_boolean(did_masters, "did_masters")
     check_int(current_experience, "current_experience", -1)
+    check_int(min_relevance_score, "min_relevance_score", 0)
 
 
 
@@ -187,7 +188,11 @@ def validate_settings() -> None | ValueError | TypeError:
     check_string(failed_file_name, "failed_file_name", min_length=1)
     check_string(logs_folder_path, "logs_folder_path", min_length=1)
 
-    check_int(click_gap, "click_gap", 0)
+    check_int(click_gap, "click_gap", 1)
+    check_int(min_job_gap, "min_job_gap", 0)
+    check_int(max_daily_applications, "max_daily_applications", 1)
+    check_string(learned_answers_path, "learned_answers_path", min_length=1)
+    check_boolean(use_learned_answers, "use_learned_answers")
 
     check_boolean(run_in_background, "run_in_background")
     check_boolean(disable_extensions, "disable_extensions")

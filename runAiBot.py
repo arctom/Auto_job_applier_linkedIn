@@ -29,17 +29,18 @@ from config.search import *
 from config.secrets import use_AI, username, password
 from config.settings import *
 
-from modules.open_chrome import *
+from modules.open_chrome import initialize_driver, driver, wait, actions
 from modules.helpers import *
 from modules.clickers_and_finders import *
 from modules.validator import validate_config
-from modules.ai.openaiConnections import *
+from modules.ai.aiConnections import *
+from modules.learned_answers import load_learned_answers, find_learned_answer, save_learned_answer, _similarity
+from modules.resumes.extractor import get_user_profile
 
 from typing import Literal
 
 
 pyautogui.FAILSAFE = False
-# if use_resume_generator:    from resume_generator import is_logged_in_GPT, login_GPT, open_resume_chat, create_custom_resume
 
 
 #< Global Variables and logics
@@ -79,6 +80,7 @@ notice_period_weeks = str(notice_period//7)
 notice_period = str(notice_period)
 
 aiClient = None
+userProfile = None
 #>
 
 
@@ -89,6 +91,9 @@ def is_logged_in_LN() -> bool:
     * Returns: `True` if user is logged-in or `False` if not
     '''
     if driver.current_url == "https://www.linkedin.com/feed/": return True
+    # If we're on the login page, user is definitely not logged in
+    if "linkedin.com/login" in driver.current_url: return False
+    buffer(2)  # Let the page render before hunting for elements
     if try_linkText(driver, "Sign in"): return False
     if try_xp(driver, '//button[@type="submit" and contains(text(), "Sign in")]'):  return False
     if try_linkText(driver, "Join now"): return False
@@ -99,41 +104,108 @@ def is_logged_in_LN() -> bool:
 def login_LN() -> None:
     '''
     Function to login for LinkedIn
-    * Tries to login using given `username` and `password` from `secrets.py`
-    * If failed, tries to login using saved LinkedIn profile button if available
-    * If both failed, asks user to login manually
+    * Uses JavaScript to generically find and fill form fields — no hardcoded selectors
+    * Handles both the older single-page login and the newer two-step login flow
+    * If auto-login fails, asks user to login manually
     '''
-    # Find the username and password fields and fill them with user credentials
     driver.get("https://www.linkedin.com/login")
+    buffer(3)
+
     try:
-        wait.until(EC.presence_of_element_located((By.LINK_TEXT, "Forgot password?")))
-        try:
-            text_input_by_ID(driver, "username", username, 1)
-        except Exception as e:
-            print_lg("Couldn't find username field.")
-            # print_lg(e)
-        try:
-            text_input_by_ID(driver, "password", password, 1)
-        except Exception as e:
-            print_lg("Couldn't find password field.")
-            # print_lg(e)
-        # Find the login submit button and click it
-        driver.find_element(By.XPATH, '//button[@type="submit" and contains(text(), "Sign in")]').click()
+        # Step 1: Find and fill the username field using native DOM setter (bypasses React)
+        fill_result = driver.execute_script("""
+            const nativeSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+            const inputs = document.querySelectorAll('input:not([type="hidden"])');
+            for (const inp of inputs) {
+                if (inp.type === 'text' || inp.type === 'email' || inp.autocomplete === 'username'
+                    || inp.id === 'username' || inp.id === 'session_key' || inp.name === 'session_key') {
+                    inp.focus();
+                    nativeSetter.call(inp, '');
+                    nativeSetter.call(inp, arguments[0]);
+                    inp.dispatchEvent(new Event('input', {bubbles: true}));
+                    inp.dispatchEvent(new Event('change', {bubbles: true}));
+                    inp.dispatchEvent(new FocusEvent('focus', {bubbles: true}));
+                    inp.dispatchEvent(new FocusEvent('blur', {bubbles: true}));
+                    // Verify the value stuck
+                    return 'filled username: ' + (inp.id || inp.name) + ' value=[' + inp.value + ']';
+                }
+            }
+            return 'no username field found. total inputs: ' + inputs.length;
+        """, username)
+        print_lg("Step1 (username): " + str(fill_result))
+        buffer(1)
+
+        # Step 2: Find and fill the password field
+        pass_result = driver.execute_script("""
+            const nativeSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+            const inputs = document.querySelectorAll('input:not([type="hidden"])');
+            for (const inp of inputs) {
+                if (inp.type === 'password') {
+                    inp.focus();
+                    nativeSetter.call(inp, '');
+                    nativeSetter.call(inp, arguments[0]);
+                    inp.dispatchEvent(new Event('input', {bubbles: true}));
+                    inp.dispatchEvent(new Event('change', {bubbles: true}));
+                    inp.dispatchEvent(new FocusEvent('focus', {bubbles: true}));
+                    inp.dispatchEvent(new FocusEvent('blur', {bubbles: true}));
+                    return 'filled password: ' + (inp.id || inp.name) + ' value=[' + inp.value + ']';
+                }
+            }
+            return 'no password field found. total inputs: ' + inputs.length;
+        """, password)
+        print_lg("Step2 (password): " + str(pass_result))
+        buffer(1)
+
+        # Step 3: Submit — try multiple strategies
+        submit_result = driver.execute_script("""
+            // Strategy A: Click the actual Sign in button (not social SSO buttons)
+            const allButtons = document.querySelectorAll('button, input[type="submit"], [role="button"]');
+            for (const btn of allButtons) {
+                const text = (btn.textContent || btn.value || btn.getAttribute('aria-label') || '').toLowerCase();
+                const isSubmit = btn.type === 'submit';
+                const isSso = text.includes('with apple') || text.includes('with google') || text.includes('with facebook');
+                if (!isSso && (text.includes('sign in') || text.includes('next') || text.includes('agree') || isSubmit)) {
+                    try { btn.click(); return 'clicked: ' + text.trim(); }
+                    catch(e) { return 'click error: ' + e.message; }
+                }
+            }
+            // Strategy B: Submit any form
+            const forms = document.querySelectorAll('form');
+            for (const f of forms) {
+                try { f.submit(); return 'submitted form: ' + (f.id || f.action || 'unnamed'); }
+                catch(e) { return 'form error: ' + e.message; }
+            }
+            // Strategy C: Press Enter on password field
+            const pw = document.querySelector('input[type="password"]');
+            if (pw) {
+                ['keydown','keypress','keyup'].forEach(type => {
+                    pw.dispatchEvent(new KeyboardEvent(type, {key:'Enter', code:'Enter', keyCode:13, which:13, bubbles:true, cancelable:true}));
+                });
+                return 'dispatched Enter on password field';
+            }
+            return 'all strategies failed. buttons:' + allButtons.length + ' forms:' + forms.length;
+        """)
+        print_lg("Step3 (submit): " + str(submit_result))
+
     except Exception as e1:
+        print_lg("Exception during credential entry: {} - {}".format(type(e1).__name__, str(e1)[:200]))
+        try:
+            screenshot_path = logs_folder_path + "/screenshots/login_failure_" + datetime.now().strftime("%Y%m%d_%H%M%S") + ".png"
+            driver.save_screenshot(screenshot_path)
+            print_lg("Saved login failure screenshot to: " + screenshot_path)
+        except Exception:
+            pass
         try:
             profile_button = find_by_class(driver, "profile__details")
             profile_button.click()
         except Exception as e2:
-            # print_lg(e1, e2)
-            print_lg("Couldn't Login!")
+            print_lg("Couldn't Login! (profile fallback also failed)")
 
     try:
-        # Wait until successful redirect, indicating successful login
-        wait.until(EC.url_to_be("https://www.linkedin.com/feed/")) # wait.until(EC.presence_of_element_located((By.XPATH, '//button[normalize-space(.)="Start a post"]')))
+        wait.until(EC.url_to_be("https://www.linkedin.com/feed/"))
         return print_lg("Login successful!")
     except Exception as e:
         print_lg("Seems like login attempt failed! Possibly due to wrong credentials or already logged in! Try logging in manually!")
-        # print_lg(e)
         manual_login_retry(is_logged_in_LN, 2)
 #>
 
@@ -236,20 +308,35 @@ def apply_filters() -> None:
 
 
 
-def get_page_info() -> tuple[WebElement | None, int | None]:
+def get_page_info() -> tuple[list[WebElement] | None, int | None]:
     '''
-    Function to get pagination element and current page number
+    Function to get pagination page buttons and current page number.
+    Uses aria-label based selectors which are more stable than class names.
+    Returns a list of page button WebElements and the current page number.
     '''
     try:
-        pagination_element = try_find_by_classes(driver, ["artdeco-pagination", "artdeco-pagination__pages"])
-        scroll_to_view(driver, pagination_element)
-        current_page = int(pagination_element.find_element(By.XPATH, "//li[contains(@class, 'active')]").text)
+        page_buttons = driver.find_elements(By.XPATH, "//button[starts-with(@aria-label, 'Page ')]")
+        if not page_buttons:
+            # Fallback: try older class-based selectors
+            try:
+                pagination_element = try_find_by_classes(driver, ["artdeco-pagination", "artdeco-pagination__pages"])
+                page_buttons = pagination_element.find_elements(By.XPATH, ".//button[starts-with(@aria-label, 'Page ')]")
+            except Exception:
+                print_lg("Failed to find Pagination element, hence couldn't scroll till end!")
+                return None, None
+        current_page = None
+        for btn in page_buttons:
+            if btn.get_attribute("aria-current") == "true" or "active" in (btn.get_attribute("class") or ""):
+                current_page = int(btn.get_attribute("aria-label").replace("Page ", ""))
+                break
+        if current_page is None:
+            current_page = 1
+        scroll_to_view(driver, page_buttons[-1])
     except Exception as e:
         print_lg("Failed to find Pagination element, hence couldn't scroll till end!")
-        pagination_element = None
-        current_page = None
         print_lg(e)
-    return pagination_element, current_page
+        return None, None
+    return page_buttons, current_page
 
 
 
@@ -290,7 +377,8 @@ def get_job_main_details(job: WebElement, blacklisted_companies: set, rejected_j
         if job.find_element(By.CLASS_NAME, "job-card-container__footer-job-state").text == "Applied":
             skip = True
             print_lg(f'Already applied to "{title} | {company}" job. Job ID: {job_id}!')
-    except: pass
+    except Exception:
+        pass  # Non-critical: element may not exist for all job cards
     try: 
         if not skip: job_details_button.click()
     except Exception as e:
@@ -311,13 +399,13 @@ def check_blacklist(rejected_jobs: set, job_id: str, company: str, blacklisted_c
     about_company = about_company_org.lower()
     skip_checking = False
     for word in about_company_good_words:
-        if word.lower() in about_company:
+        if re.search(r'\b' + re.escape(word) + r'\b', about_company, re.IGNORECASE):
             print_lg(f'Found the word "{word}". So, skipped checking for blacklist words.')
             skip_checking = True
             break
     if not skip_checking:
-        for word in about_company_bad_words: 
-            if word.lower() in about_company: 
+        for word in about_company_bad_words:
+            if re.search(r'\b' + re.escape(word) + r'\b', about_company, re.IGNORECASE):
                 rejected_jobs.add(job_id)
                 blacklisted_companies.add(company)
                 raise ValueError(f'\n"{about_company_org}"\n\nContains "{word}".')
@@ -366,7 +454,7 @@ def get_job_description(
         skipReason = None
         skipMessage = None
         for word in bad_words:
-            if word.lower() in jobDescriptionLow:
+            if re.search(r'\b' + re.escape(word) + r'\b', jobDescriptionLow, re.IGNORECASE):
                 skipMessage = f'\n{jobDescription}\n\nContains bad word "{word}". Skipping this job!\n'
                 skipReason = "Found a Bad Word in About Job"
                 skip = True
@@ -376,11 +464,23 @@ def get_job_description(
             skipReason = "Asking for Security clearance"
             skip = True
         if not skip:
-            if did_masters and 'master' in jobDescriptionLow:
+            # AI-based job relevance check
+            if use_AI and aiClient and min_relevance_score > 0:
+                relevance = ai_check_job_relevance(aiClient, jobDescription, user_profile=userProfile)
+                if relevance and relevance.get("relevance_score", 100) < min_relevance_score:
+                    skipMessage = f'\n{jobDescription}\n\nAI relevance score {relevance.get("relevance_score", 0)} < {min_relevance_score}. Skipping this job!\nReasoning: {relevance.get("reasoning", "N/A")}'
+                    skipReason = "Low AI relevance score"
+                    skip = True
+            if not skip and did_masters and 'master' in jobDescriptionLow:
                 print_lg(f'Found the word "master" in \n{jobDescription}')
                 found_masters = 2
             experience_required = extract_years_of_experience(jobDescription)
-            if current_experience > -1 and experience_required > current_experience + found_masters:
+            if not skip and use_AI and aiClient and experience_required == 0:
+                ai_exp = ai_gen_experience(aiClient, jobDescription, userProfile)
+                if ai_exp and ai_exp.get("years_required", 0) > 0:
+                    experience_required = ai_exp["years_required"]
+                    print_lg(f"AI extracted experience: {experience_required} years")
+            if not skip and current_experience > -1 and isinstance(experience_required, int) and experience_required > current_experience + found_masters:
                 skipMessage = f'\n{jobDescription}\n\nExperience required {experience_required} > Current Experience {current_experience + found_masters}. Skipping this job!\n'
                 skipReason = "Required experience is high"
                 skip = True
@@ -408,10 +508,122 @@ def answer_common_questions(label: str, answer: str) -> str:
     return answer
 
 
+def capture_manual_answers(modal: WebElement) -> None:
+    '''
+    Scans all form fields in the modal and saves their current values
+    as learned answers. Called after manual intervention so user edits persist.
+    '''
+    import re
+
+    all_questions = modal.find_elements(By.CLASS_NAME, "jobs-easy-apply-form-element")
+    all_list_questions = modal.find_elements(By.XPATH, ".//div[@data-test-text-entity-list-form-component]")
+    all_single_line_questions = modal.find_elements(By.XPATH, ".//div[@data-test-single-line-text-form-component]")
+    all_questions = all_questions + all_list_questions + all_single_line_questions
+
+    for Question in all_questions:
+        # Extract label text
+        label_org = ""
+        try:
+            label_el = Question.find_element(By.TAG_NAME, "label")
+            span = try_xp(label_el, ".//span", False)
+            label_org = span.text.strip() if span else label_el.text.strip()
+        except Exception:
+            pass
+        if not label_org:
+            # Try aria-label or data-test attributes
+            label_el = try_xp(Question, ".//*[@aria-label]", False)
+            if label_el:
+                label_org = label_el.get_attribute("aria-label").strip()
+
+        if not label_org:
+            continue
+
+        # Select
+        select_el = try_xp(Question, ".//select", False)
+        if select_el:
+            try:
+                selected = Select(select_el).first_selected_option.text
+                if selected and selected != "Select an option":
+                    options = [o.text for o in Select(select_el).options]
+                    save_learned_answer(label_org, "select", selected, str(options))
+                    print_lg(f'Captured manual select "{label_org}": "{selected}"')
+            except Exception:
+                pass
+            continue
+
+        # Text input
+        text_el = try_xp(Question, ".//input[@type='text']", False)
+        if text_el:
+            val = text_el.get_attribute("value")
+            if val and val.strip():
+                save_learned_answer(label_org, "text", val.strip())
+                print_lg(f'Captured manual text "{label_org}": "{val.strip()}"')
+            continue
+
+        # Textarea
+        textarea_el = try_xp(Question, ".//textarea", False)
+        if textarea_el:
+            val = textarea_el.get_attribute("value")
+            if val and val.strip():
+                save_learned_answer(label_org, "textarea", val.strip())
+                print_lg(f'Captured manual textarea "{label_org}": "{val.strip()}"')
+            continue
+
+        # Radio / checkbox groups — find selected ones
+        all_checkboxes = Question.find_elements(By.XPATH, ".//input[@type='checkbox']")
+        all_radios = Question.find_elements(By.XPATH, ".//input[@type='radio']")
+
+        if all_radios:
+            for radio in all_radios:
+                if radio.is_selected():
+                    radio_id = radio.get_attribute("id")
+                    radio_label_el = try_xp(Question, f".//label[@for='{radio_id}']", False)
+                    radio_label = radio_label_el.text.strip() if radio_label_el else ""
+                    if radio_label:
+                        # Find all radio labels for options context
+                        all_radio_labels = []
+                        for r in all_radios:
+                            rid = r.get_attribute("id")
+                            rlbl = try_xp(Question, f".//label[@for='{rid}']", False)
+                            if rlbl:
+                                all_radio_labels.append(rlbl.text.strip())
+                        save_learned_answer(label_org, "radio", radio_label, str(all_radio_labels))
+                        print_lg(f'Captured manual radio "{label_org}": "{radio_label}"')
+            continue
+
+        if all_checkboxes:
+            selected_labels = []
+            all_cb_labels = []
+            for cb in all_checkboxes:
+                cb_id = cb.get_attribute("id")
+                cb_label_el = try_xp(Question, f".//label[@for='{cb_id}']", False)
+                cb_label = cb_label_el.text.strip() if cb_label_el else ""
+                if cb_label:
+                    all_cb_labels.append(cb_label)
+                    if cb.is_selected():
+                        selected_labels.append(cb_label)
+            if selected_labels:
+                save_learned_answer(label_org, "checkbox", ", ".join(selected_labels), str(all_cb_labels))
+                print_lg(f'Captured manual checkbox "{label_org}": "{selected_labels}"')
+
+
+def _retry_ai_answer(client, label: str, options, qtype: str, description: str, userProfile: dict, attempts: int = 2) -> str | None:
+    ''' Call ai_answer_question with retries on failure '''
+    for i in range(attempts):
+        ai_answer = ai_answer_question(client, label, options, qtype, job_description=description, user_profile=userProfile)
+        if ai_answer:
+            return ai_answer
+        if i < attempts - 1:
+            print_lg(f'AI answer failed for "{label}" — retrying ({i + 2}/{attempts})...')
+            buffer(2)
+    return None
+
+
 # Function to answer the questions for Easy Apply
-def answer_questions(modal: WebElement, questions_list: set, work_location: str) -> set:
+def answer_questions(modal: WebElement, questions_list: set, work_location: str, description: str = "Unknown", userProfile: dict = None) -> set:
     # Get all questions from the page
-     
+    learned_answers = load_learned_answers()
+
     all_questions = modal.find_elements(By.CLASS_NAME, "jobs-easy-apply-form-element")
     all_list_questions = modal.find_elements(By.XPATH, ".//div[@data-test-text-entity-list-form-component]")
     all_single_line_questions = modal.find_elements(By.XPATH, ".//div[@data-test-single-line-text-form-component]")
@@ -425,7 +637,8 @@ def answer_questions(modal: WebElement, questions_list: set, work_location: str)
             try:
                 label = Question.find_element(By.TAG_NAME, "label")
                 label_org = label.find_element(By.TAG_NAME, "span").text
-            except: pass
+            except Exception:
+                pass  # Non-critical: select may not have a label/span structure
             answer = 'Yes'
             label = label_org.lower()
             select = Select(select)
@@ -440,7 +653,21 @@ def answer_questions(modal: WebElement, questions_list: set, work_location: str)
                 if 'email' in label or 'phone' in label: answer = prev_answer
                 elif 'gender' in label or 'sex' in label: answer = gender
                 elif 'disability' in label: answer = disability_status
-                elif 'proficiency' in label: answer = 'Professional'
+                elif ('proficiency' in label or 'english' in label or 'anglais' in label or 'ingles' in label or 'inglés' in label
+                      or 'language' in label or 'idioma' in label or 'langue' in label or 'sprache' in label
+                      or 'nivel' in label or 'niveau' in label):
+                    # Multi-language language proficiency detection
+                    answer = 'Professional'
+                    prof_levels = [
+                        'Native or bilingual', 'Native Speaker', 'Native', 'Nativo', 'Bilingüe', 'Bilingue',
+                        'Fluent', 'Fluido', 'Fluente', 'C2', 'C1', 'Professional', 'Profesional',
+                        'Advanced', 'Avanzado', 'Avancé', 'B2', 'Conversational', 'Conversacional', 'B1',
+                        'Intermediate', 'Intermedio', 'Intermédiaire', 'A2', 'Basic', 'Básico', 'Basico', 'A1'
+                    ]
+                    for prof in prof_levels:
+                        if any(prof.lower() in opt.lower() for opt in optionsText):
+                            answer = prof
+                            break
                 else: answer = answer_common_questions(label,answer)
                 try: select.select_by_visible_text(answer)
                 except NoSuchElementException as e:
@@ -455,10 +682,57 @@ def answer_questions(modal: WebElement, questions_list: set, work_location: str)
                                 break
                         if foundOption: break
                     if not foundOption:
-                        print_lg(f'Failed to find an option with text "{answer}" for question labelled "{label_org}", answering randomly!')
-                        select.select_by_index(randint(1, len(select.options)-1))
-                        answer = select.first_selected_option.text
-                        randomly_answered_questions.add((f'{label_org} [ {options} ]',"select"))
+                        learned_answer = find_learned_answer(label_org, "select")
+                        if learned_answer:
+                            try:
+                                select.select_by_visible_text(learned_answer)
+                                answer = learned_answer
+                                foundOption = True
+                                print_lg(f'Used learned answer for select "{label_org}": "{learned_answer}"')
+                            except NoSuchElementException:
+                                print_lg(f'Learned answer "{learned_answer}" not found in options for "{label_org}"')
+                        if not foundOption and use_AI and aiClient:
+                            ai_answer = _retry_ai_answer(aiClient, label_org, optionsText, 'single_select', description, userProfile)
+                            if ai_answer:
+                                try:
+                                    select.select_by_visible_text(ai_answer)
+                                    answer = ai_answer
+                                    foundOption = True
+                                    save_learned_answer(label_org, "select", ai_answer, str(optionsText))
+                                    print_lg(f'Used AI answer for select "{label_org}": "{ai_answer}"')
+                                except NoSuchElementException:
+                                    print_lg(f'AI answer "{ai_answer}" not found in options for "{label_org}"')
+                                    # Fuzzy fallback: try substring match first (fast), then similarity (handles translations)
+                                    best_match = None
+                                    best_score = 0.0
+                                    for i, opt in enumerate(optionsText):
+                                        # Substring match (e.g. "Fluent" in "Fluido")
+                                        if ai_answer.lower() in opt.lower() or opt.lower() in ai_answer.lower():
+                                            best_match = i
+                                            break
+                                        # Similarity fallback (e.g. "Advanced" vs "Avanzado")
+                                        score = _similarity(ai_answer.lower(), opt.lower())
+                                        if score > best_score:
+                                            best_score = score
+                                            best_match = i
+                                    if best_match is not None and (best_score >= 0.5 or best_match == i):
+                                        opt = optionsText[best_match]
+                                        select.select_by_index(best_match + 1)  # +1 to skip placeholder
+                                        answer = opt
+                                        foundOption = True
+                                        save_learned_answer(label_org, "select", opt, str(optionsText))
+                                        print_lg(f'Used AI answer (fuzzy) for select "{label_org}": "{opt}" (AI said "{ai_answer}")')
+                        elif not foundOption:
+                            # Log WHY AI wasn't called so it's diagnosable
+                            if not use_AI:
+                                print_lg(f'AI NOT called for select "{label_org}" — use_AI is False in config/secrets.py')
+                            elif not aiClient:
+                                print_lg(f'AI NOT called for select "{label_org}" — AI client is None (API connection may have failed at startup)')
+                        if not foundOption:
+                            print_lg(f'Failed to find an option with text "{answer}" for question labelled "{label_org}", answering randomly!')
+                            select.select_by_index(randint(1, len(select.options)-1))
+                            answer = select.first_selected_option.text
+                            randomly_answered_questions.add((f'{label_org} [ {options} ]',"select"))
             questions_list.add((f'{label_org} [ {options} ]', answer, "select", prev_answer))
             continue
         
@@ -468,7 +742,8 @@ def answer_questions(modal: WebElement, questions_list: set, work_location: str)
             prev_answer = None
             label = try_xp(radio, './/span[@data-test-form-builder-radio-button-form-component__title]', False)
             try: label = find_by_class(label, "visually-hidden", 2.0)
-            except: pass
+            except Exception:
+                pass  # Non-critical: visually-hidden class may not exist
             label_org = label.text if label else "Unknown"
             answer = 'Yes'
             label = label_org.lower()
@@ -491,9 +766,9 @@ def answer_questions(modal: WebElement, questions_list: set, work_location: str)
                     answer = disability_status
                 else: answer = answer_common_questions(label,answer)
                 foundOption = try_xp(radio, f".//label[normalize-space()='{answer}']", False)
-                if foundOption: 
+                if foundOption:
                     actions.move_to_element(foundOption).click().perform()
-                else:    
+                else:
                     possible_answer_phrases = ["Decline", "not wish", "don't wish", "Prefer not", "not want"] if answer == 'Decline' else [answer]
                     ele = options[0]
                     answer = options_labels[0]
@@ -505,16 +780,65 @@ def answer_questions(modal: WebElement, questions_list: set, work_location: str)
                                 answer = f'Decline ({option_label})' if len(possible_answer_phrases) > 1 else option_label
                                 break
                         if foundOption: break
-                    # if answer == 'Decline':
-                    #     answer = options_labels[0]
-                    #     for phrase in ["Prefer not", "not want", "not wish"]:
-                    #         foundOption = try_xp(radio, f".//label[normalize-space()='{phrase}']", False)
-                    #         if foundOption:
-                    #             answer = f'Decline ({phrase})'
-                    #             ele = foundOption
-                    #             break
-                    actions.move_to_element(ele).click().perform()
-                    if not foundOption: randomly_answered_questions.add((f'{label_org} ]',"radio"))
+                    if not foundOption:
+                        learned_answer = find_learned_answer(label_org, "radio")
+                        if learned_answer:
+                            learned_radio = try_xp(radio, f".//label[normalize-space()='{learned_answer}']", False)
+                            if learned_radio:
+                                actions.move_to_element(learned_radio).click().perform()
+                                answer = learned_answer
+                                foundOption = True
+                                print_lg(f'Used learned answer for radio "{label_org}": "{learned_answer}"')
+                            else:
+                                possibilities = ["Decline", "not wish", "don't wish", "Prefer not", "not want"] if learned_answer == 'Decline' else [learned_answer]
+                                for phrase in possibilities:
+                                    for i, opt_label in enumerate(options_labels):
+                                        if phrase in opt_label:
+                                            actions.move_to_element(options[i]).click().perform()
+                                            answer = opt_label
+                                            foundOption = True
+                                            print_lg(f'Used learned answer for radio "{label_org}": "{opt_label}"')
+                                            break
+                                    if foundOption: break
+                    if not foundOption and use_AI and aiClient:
+                        option_labels_clean = [ol[:ol.rfind('<')] if '<' in ol else ol for ol in options_labels]
+                        ai_answer = _retry_ai_answer(aiClient, label_org, option_labels_clean, 'single_select', description, userProfile)
+                        if ai_answer:
+                            ai_radio = try_xp(radio, f".//label[normalize-space()='{ai_answer}']", False)
+                            if ai_radio:
+                                actions.move_to_element(ai_radio).click().perform()
+                                answer = ai_answer
+                                foundOption = True
+                                save_learned_answer(label_org, "radio", ai_answer, str(options_labels))
+                                print_lg(f'Used AI answer for radio "{label_org}": "{ai_answer}"')
+                            else:
+                                # Fuzzy fallback: substring first, then similarity (handles translations)
+                                best_match = None
+                                best_score = 0.0
+                                for i, opt_label in enumerate(options_labels):
+                                    clean_label = option_labels_clean[i] if i < len(option_labels_clean) else opt_label
+                                    if ai_answer.lower() in clean_label.lower() or clean_label.lower() in ai_answer.lower():
+                                        best_match = i
+                                        break
+                                    score = _similarity(ai_answer.lower(), clean_label.lower())
+                                    if score > best_score:
+                                        best_score = score
+                                        best_match = i
+                                if best_match is not None and (best_score >= 0.5 or ai_answer.lower() in options_labels[best_match].lower()):
+                                    actions.move_to_element(options[best_match]).click().perform()
+                                    answer = options_labels[best_match]
+                                    foundOption = True
+                                    save_learned_answer(label_org, "radio", answer, str(options_labels))
+                                    print_lg(f'Used AI answer (fuzzy) for radio "{label_org}": "{answer}" (AI said "{ai_answer}")')
+                    elif not foundOption:
+                        # Log WHY AI wasn't called
+                        if not use_AI:
+                            print_lg(f'AI NOT called for radio "{label_org}" — use_AI is False in config/secrets.py')
+                        elif not aiClient:
+                            print_lg(f'AI NOT called for radio "{label_org}" — AI client is None (API connection may have failed at startup)')
+                    if not foundOption:
+                        randomly_answered_questions.add((f'{label_org} ]',"radio"))
+                        actions.move_to_element(ele).click().perform()
             else: answer = prev_answer
             questions_list.add((label_org+" ]", answer, "radio", prev_answer))
             continue
@@ -525,14 +849,15 @@ def answer_questions(modal: WebElement, questions_list: set, work_location: str)
             do_actions = False
             label = try_xp(Question, ".//label[@for]", False)
             try: label = label.find_element(By.CLASS_NAME,'visually-hidden')
-            except: pass
+            except Exception:
+                pass  # Non-critical: visually-hidden class may not exist on this text input
             label_org = label.text if label else "Unknown"
-            answer = "" # years_of_experience
+            answer = ""
             label = label_org.lower()
 
             prev_answer = text.get_attribute("value")
             if not prev_answer or overwrite_previous_answers:
-                if 'experience' in label or 'years' in label: answer = years_of_experience
+                if 'experience' in label or 'years' in label: answer = ""  # Defer to AI — config value used as fallback below
                 elif 'phone' in label or 'mobile' in label: answer = phone_number
                 elif 'street' in label: answer = street
                 elif 'city' in label or 'location' in label or 'address' in label:
@@ -552,7 +877,7 @@ def answer_questions(modal: WebElement, questions_list: set, work_location: str)
                     elif 'week' in label:
                         answer = notice_period_weeks
                     else: answer = notice_period
-                elif 'salary' in label or 'compensation' in label or 'ctc' in label or 'pay' in label: 
+                elif 'salary' in label or 'salar' in label or 'compensation' in label or 'ctc' in label or 'pay' in label or 'remuneration' in label or 'wage' in label:
                     if 'current' in label or 'present' in label:
                         if 'month' in label:
                             answer = current_ctc_monthly
@@ -575,10 +900,42 @@ def answer_questions(modal: WebElement, questions_list: set, work_location: str)
                 elif 'state' in label or 'province' in label: answer = state
                 elif 'zip' in label or 'postal' in label or 'code' in label: answer = zipcode
                 elif 'country' in label: answer = country
+                elif 'english' in label or 'language' in label or 'proficiency' in label:
+                    lang = "English"
+                    for l in ["English", "Spanish", "French"]:
+                        if l.lower() in label:
+                            lang = l
+                            break
+                    lang_lower = lang.lower()
+                    lang_data = (userProfile or {}).get('languages') or []
+                    level = "Fluent"
+                    for entry in lang_data:
+                        if isinstance(entry, dict) and lang_lower in entry.get("language", "").lower():
+                            level = entry.get("proficiency", entry.get("level", "Fluent"))
+                            break
+                    answer = level
                 else: answer = answer_common_questions(label,answer)
                 if answer == "":
-                    randomly_answered_questions.add((label_org, "text"))
-                    answer = years_of_experience
+                    learned_answer = find_learned_answer(label_org, "text")
+                    if learned_answer:
+                        answer = learned_answer
+                        print_lg(f'Used learned answer for text "{label_org}": "{learned_answer}"')
+                    elif use_AI and aiClient:
+                        ai_answer = _retry_ai_answer(aiClient, label_org, None, 'text', description, userProfile)
+                        if ai_answer:
+                            answer = ai_answer
+                            save_learned_answer(label_org, "text", ai_answer)
+                            print_lg(f'Used AI answer for text "{label_org}": "{ai_answer}"')
+                    else:
+                        # Log WHY AI wasn't called for text questions
+                        if answer == "":
+                            if not use_AI:
+                                print_lg(f'AI NOT called for text "{label_org}" — use_AI is False in config/secrets.py')
+                            elif not aiClient:
+                                print_lg(f'AI NOT called for text "{label_org}" — AI client is None (API connection may have failed at startup)')
+                    if answer == "":
+                        randomly_answered_questions.add((label_org, "text"))
+                        answer = years_of_experience
                 text.clear()
                 text.send_keys(answer)
                 if do_actions:
@@ -598,31 +955,117 @@ def answer_questions(modal: WebElement, questions_list: set, work_location: str)
             prev_answer = text_area.get_attribute("value")
             if not prev_answer or overwrite_previous_answers:
                 if 'summary' in label: answer = linkedin_summary
-                elif 'cover' in label: answer = cover_letter
+                elif 'cover' in label:
+                    if use_AI and aiClient:
+                        ai_cover = ai_generate_coverletter(aiClient, "", "", {}, userProfile)
+                        answer = ai_cover if ai_cover else cover_letter
+                    else:
+                        answer = cover_letter
                 text_area.clear()
                 text_area.send_keys(answer)
-                if answer == "": 
+                if answer == "":
+                    learned_answer = find_learned_answer(label_org, "textarea")
+                    if learned_answer:
+                        answer = learned_answer
+                        text_area.clear()
+                        text_area.send_keys(answer)
+                        print_lg(f'Used learned answer for textarea "{label_org}": "{learned_answer}"')
+                    elif use_AI and aiClient:
+                        ai_answer = _retry_ai_answer(aiClient, label_org, None, 'textarea', description, userProfile)
+                        if ai_answer:
+                            answer = ai_answer
+                            text_area.clear()
+                            text_area.send_keys(answer)
+                            save_learned_answer(label_org, "textarea", ai_answer)
+                            print_lg(f'Used AI answer for textarea "{label_org}": "{ai_answer}"')
+                    else:
+                        # Log WHY AI wasn't called for textarea questions
+                        if answer == "":
+                            if not use_AI:
+                                print_lg(f'AI NOT called for textarea "{label_org}" — use_AI is False in config/secrets.py')
+                            elif not aiClient:
+                                print_lg(f'AI NOT called for textarea "{label_org}" — AI client is None (API connection may have failed at startup)')
+                            print_lg(f'Used AI answer for textarea "{label_org}": "{ai_answer}"')
+                if answer == "":
                     randomly_answered_questions.add((label_org, "textarea"))
             questions_list.add((label, text_area.get_attribute("value"), "textarea", prev_answer))
             continue
 
         # Check if it's a checkbox question
-        checkbox = try_xp(Question, ".//input[@type='checkbox']", False)
-        if checkbox:
+        all_checkboxes = Question.find_elements(By.XPATH, ".//input[@type='checkbox']")
+        if all_checkboxes:
+            checkbox = all_checkboxes[0]
             label = try_xp(Question, ".//span[@class='visually-hidden']", False)
             label_org = label.text if label else "Unknown"
             label = label_org.lower()
-            answer = try_xp(Question, ".//label[@for]", False)  # Sometimes multiple checkboxes are given for 1 question, Not accounted for that yet
+            answer = try_xp(Question, ".//label[@for]", False)
             answer = answer.text if answer else "Unknown"
             prev_answer = checkbox.is_selected()
             checked = prev_answer
-            if not prev_answer:
-                try:
-                    actions.move_to_element(checkbox).click().perform()
+
+            if len(all_checkboxes) > 1:
+                # Multiple checkboxes — "select all that apply" pattern
+                checkbox_labels = []
+                for cb in all_checkboxes:
+                    cb_id = cb.get_attribute("id")
+                    cb_label_el = try_xp(Question, f".//label[@for='{cb_id}']", False)
+                    cb_label = cb_label_el.text if cb_label_el else "Unknown"
+                    checkbox_labels.append(cb_label)
+
+                if use_AI and aiClient:
+                    ai_answer = _retry_ai_answer(aiClient, label_org, checkbox_labels, 'multiple_select', description, userProfile)
+                    if ai_answer:
+                        for cb in all_checkboxes:
+                            cb_id = cb.get_attribute("id")
+                            cb_label_el = try_xp(Question, f".//label[@for='{cb_id}']", False)
+                            cb_label = cb_label_el.text if cb_label_el else ""
+                            if ai_answer.lower() in cb_label.lower() and not cb.is_selected():
+                                try:
+                                    actions.move_to_element(cb).click().perform()
+                                    print_lg(f'AI selected checkbox: "{cb_label}"')
+                                except Exception as e:
+                                    print_lg(f"Checkbox click failed for {cb_label}!", e)
+                        checked = True
+                        answer = ai_answer
+                        save_learned_answer(label_org, "checkbox", ai_answer, str(checkbox_labels))
+                        print_lg(f'Used AI answer for checkbox "{label_org}": "{ai_answer}"')
+                    else:
+                        # Fallback: check all
+                        for cb in all_checkboxes:
+                            if not cb.is_selected():
+                                try:
+                                    actions.move_to_element(cb).click().perform()
+                                except Exception as e:
+                                    print_lg("Checkbox click failed!", e)
+                        checked = True
+                else:
+                    # No AI: check all as safest default
+                    for cb in all_checkboxes:
+                        if not cb.is_selected():
+                            try:
+                                actions.move_to_element(cb).click().perform()
+                            except Exception as e:
+                                print_lg("Checkbox click failed!", e)
                     checked = True
-                except Exception as e: 
-                    print_lg("Checkbox click failed!", e)
-                    pass
+            else:
+                # Single checkbox — existing behavior
+                if not prev_answer:
+                    learned_answer = find_learned_answer(label_org, "checkbox")
+                    if learned_answer and learned_answer.lower() in ["yes", "true", "checked", "1"]:
+                        try:
+                            actions.move_to_element(checkbox).click().perform()
+                            checked = True
+                            save_learned_answer(label_org, "checkbox", "yes", str([answer]))
+                            print_lg(f'Used learned answer for checkbox "{label_org}": checked')
+                        except Exception as e:
+                            print_lg("Checkbox click failed!", e)
+                    elif not learned_answer:
+                        try:
+                            actions.move_to_element(checkbox).click().perform()
+                            checked = True
+                            save_learned_answer(label_org, "checkbox", "yes", str([answer]))
+                        except Exception as e:
+                            print_lg("Checkbox click failed!", e)
             questions_list.add((f'{label} ([X] {answer})', checked, "checkbox", prev_answer))
             continue
 
@@ -639,7 +1082,7 @@ def answer_questions(modal: WebElement, questions_list: set, work_location: str)
 
 
 
-def external_apply(pagination_element: WebElement, job_id: str, job_link: str, resume: str, date_listed, application_link: str, screenshot_name: str) -> tuple[bool, str, int]:
+def external_apply(page_buttons, job_id: str, job_link: str, resume: str, date_listed, application_link: str, screenshot_name: str) -> tuple[bool, str, int]:
     '''
     Function to open new tab and save external job application links
     '''
@@ -647,9 +1090,10 @@ def external_apply(pagination_element: WebElement, job_id: str, job_link: str, r
     if easy_apply_only:
         try:
             if "exceeded the daily application limit" in driver.find_element(By.CLASS_NAME, "artdeco-inline-feedback__message").text: dailyEasyApplyLimitReached = True
-        except: pass
+        except Exception:
+            pass  # Non-critical: limit message element may not be present
         print_lg("Easy apply failed I guess!")
-        if pagination_element != None: return True, application_link, tabs_count
+        if page_buttons is not None: return True, application_link, tabs_count
     try:
         wait.until(EC.element_to_be_clickable((By.XPATH, ".//button[contains(@class,'jobs-apply-button') and contains(@class, 'artdeco-button--3')]"))).click() # './/button[contains(span, "Apply") and not(span[contains(@class, "disabled")])]'
         wait_span_click(driver, "Continue", 1, True, False)
@@ -746,8 +1190,40 @@ def discard_job() -> None:
     wait_span_click(driver, 'Discard', 2)
 
 
-
-
+def check_verification_page() -> bool:
+    '''
+    Checks if LinkedIn is showing a security verification / CAPTCHA page.
+    Returns True if verification is detected.
+    '''
+    try:
+        page_source = driver.page_source.lower()
+        verification_phrases = [
+            "verify you're a human",
+            "security verification",
+            "let's do a quick security check",
+            "unusual activity",
+            "verify your identity"
+        ]
+        for phrase in verification_phrases:
+            if phrase in page_source:
+                # Confirm the phrase is actually visible, not just buried in a script tag
+                try:
+                    visible_elements = driver.find_elements(By.XPATH, f"//*[contains(text(), '{phrase}')]")
+                    if not visible_elements:
+                        continue
+                except Exception:
+                    pass
+                print_lg(f"SECURITY VERIFICATION DETECTED: Found '{phrase}' on page!")
+                screenshot_path = logs_folder_path + "/screenshots/verification_" + datetime.now().strftime("%Y%m%d_%H%M%S") + ".png"
+                try:
+                    driver.save_screenshot(screenshot_path)
+                    print_lg(f"Saved verification screenshot to: {screenshot_path}")
+                except Exception:
+                    pass
+                return True
+    except Exception as e:
+        print_lg(f"Error checking for verification page: {e}")
+    return False
 
 
 # Function to apply to jobs
@@ -772,7 +1248,7 @@ def apply_to_jobs(search_terms: list[str]) -> None:
                 # Wait until job listings are loaded
                 wait.until(EC.presence_of_all_elements_located((By.XPATH, "//li[@data-occludable-job-id]")))
 
-                pagination_element, current_page = get_page_info()
+                page_buttons, current_page = get_page_info()
 
                 # Find all job listings in current page
                 buffer(3)
@@ -782,7 +1258,22 @@ def apply_to_jobs(search_terms: list[str]) -> None:
                 for job in job_listings:
                     if keep_screen_awake: pyautogui.press('shiftright')
                     if current_count >= switch_number: break
+                    if easy_applied_count >= max_daily_applications:
+                        print_lg(f"\n###############  Daily application limit reached ({max_daily_applications})!  ###############\n")
+                        dailyEasyApplyLimitReached = True
+                        return
                     print_lg("\n-@-\n")
+
+                    if check_verification_page():
+                        screenshot_path = logs_folder_path + "/screenshots/verification_" + datetime.now().strftime("%Y%m%d_%H%M%S") + ".png"
+                        try:
+                            driver.save_screenshot(screenshot_path)
+                        except Exception:
+                            pass
+                        pyautogui.alert("LinkedIn is showing a security verification page! Please solve the CAPTCHA/verification manually, then click OK to continue.", "Verification Required", "OK")
+                        if check_verification_page():
+                            print_lg("Verification still detected after manual intervention. Pausing 5 minutes...")
+                            sleep(300)
 
                     job_id,title,company,work_location,work_style,skip = get_job_main_details(job, blacklisted_companies, rejected_jobs)
                     
@@ -826,22 +1317,6 @@ def apply_to_jobs(search_terms: list[str]) -> None:
                         hr_info_card = WebDriverWait(driver,2).until(EC.presence_of_element_located((By.CLASS_NAME, "hirer-card__hirer-information")))
                         hr_link = hr_info_card.find_element(By.TAG_NAME, "a").get_attribute("href")
                         hr_name = hr_info_card.find_element(By.TAG_NAME, "span").text
-                        # if connect_hr:
-                        #     driver.switch_to.new_window('tab')
-                        #     driver.get(hr_link)
-                        #     wait_span_click("More")
-                        #     wait_span_click("Connect")
-                        #     wait_span_click("Add a note")
-                        #     message_box = driver.find_element(By.XPATH, "//textarea")
-                        #     message_box.send_keys(connect_request_message)
-                        #     if close_tabs: driver.close()
-                        #     driver.switch_to.window(linkedIn_tab) 
-                        # def message_hr(hr_info_card):
-                        #     if not hr_info_card: return False
-                        #     hr_info_card.find_element(By.XPATH, ".//span[normalize-space()='Message']").click()
-                        #     message_box = driver.find_element(By.XPATH, "//div[@aria-label='Write a message…']")
-                        #     message_box.send_keys()
-                        #     try_xp(driver, "//button[normalize-space()='Send']")        
                     except Exception as e:
                         print_lg(f'HR info was not given for "{title}" with Job ID: {job_id}!')
                         # print_lg(e)
@@ -849,8 +1324,6 @@ def apply_to_jobs(search_terms: list[str]) -> None:
 
                     # Calculation of date posted
                     try:
-                        # try: time_posted_text = find_by_class(driver, "jobs-unified-top-card__posted-date", 2).text
-                        # except: 
                         time_posted_text = jobs_top_card.find_element(By.XPATH, './/span[contains(normalize-space(), " ago")]').text
                         print("Time Posted: " + time_posted_text)
                         if time_posted_text.__contains__("Reposted"):
@@ -881,25 +1354,26 @@ def apply_to_jobs(search_terms: list[str]) -> None:
                                 errored = ""
                                 modal = find_by_class(driver, "jobs-easy-apply-modal")
                                 wait_span_click(modal, "Next", 1)
-                                # if description != "Unknown":
-                                #     resume = create_custom_resume(description)
                                 resume = "Previous resume"
                                 next_button = True
                                 questions_list = set()
                                 next_counter = 0
+                                paused_count = 0  # Track how many times we've paused for manual help
                                 while next_button:
                                     next_counter += 1
-                                    if next_counter >= 15: 
-                                        if pause_at_failed_question:
-                                            screenshot(driver, job_id, "Needed manual intervention for failed question")
+                                    if next_counter >= 15:
+                                        if pause_at_failed_question and paused_count < 2:
+                                            paused_count += 1
+                                            screenshot(driver, job_id, f"Needed manual intervention (attempt {paused_count}/2)")
                                             pyautogui.alert("Couldn't answer one or more questions.\nPlease click \"Continue\" once done.\nDO NOT CLICK Back, Next or Review button in LinkedIn.\n\n\n\n\nYou can turn off \"Pause at failed question\" setting in config.py", "Help Needed", "Continue")
+                                            capture_manual_answers(modal)
                                             next_counter = 1
                                             continue
                                         if questions_list: print_lg("Stuck for one or some of the following questions...", questions_list)
                                         screenshot_name = screenshot(driver, job_id, "Failed at questions")
                                         errored = "stuck"
                                         raise Exception("Seems like stuck in a continuous loop of next, probably because of new questions.")
-                                    questions_list = answer_questions(modal, questions_list, work_location)
+                                    questions_list = answer_questions(modal, questions_list, work_location, description, userProfile)
                                     if useNewResume and not uploaded: uploaded, resume = upload_resume(modal, default_resume_path)
                                     try: next_button = modal.find_element(By.XPATH, './/span[normalize-space(.)="Review"]') 
                                     except NoSuchElementException:  next_button = modal.find_element(By.XPATH, './/button[contains(span, "Next")]')
@@ -918,6 +1392,7 @@ def apply_to_jobs(search_terms: list[str]) -> None:
                                     decision = pyautogui.confirm('1. Please verify your information.\n2. If you edited something, please return to this final screen.\n3. DO NOT CLICK "Submit Application".\n\n\n\n\nYou can turn off "Pause before submit" setting in config.py\nTo TEMPORARILY disable pausing, click "Disable Pause"', "Confirm your information",["Disable Pause", "Discard Application", "Submit Application"])
                                     if decision == "Discard Application": raise Exception("Job application discarded by user!")
                                     pause_before_submit = False if "Disable Pause" == decision else True
+                                    capture_manual_answers(modal)
                                     # try_xp(modal, ".//span[normalize-space(.)='Review']")
                                 follow_company(modal)
                                 if wait_span_click(driver, "Submit application", 2, scrollTop=True): 
@@ -928,8 +1403,6 @@ def apply_to_jobs(search_terms: list[str]) -> None:
                                     wait_span_click(driver, "Done", 2)
                                 else:
                                     print_lg("Since, Submit Application failed, discarding the job application...")
-                                    # if screenshot_name == "Not Available":  screenshot_name = screenshot(driver, job_id, "Failed to click Submit application")
-                                    # else:   screenshot_name = [screenshot_name, screenshot(driver, job_id, "Failed to click Submit application")]
                                     if errored == "nose": raise Exception("Failed to click Submit application 😑")
 
 
@@ -943,7 +1416,7 @@ def apply_to_jobs(search_terms: list[str]) -> None:
                             continue
                     else:
                         # Case 2: Apply externally
-                        skip, application_link, tabs_count = external_apply(pagination_element, job_id, job_link, resume, date_listed, application_link, screenshot_name)
+                        skip, application_link, tabs_count = external_apply(page_buttons, job_id, job_link, resume, date_listed, application_link, screenshot_name)
                         if dailyEasyApplyLimitReached:
                             print_lg("\n###############  Daily application limit for Easy Apply is reached!  ###############\n")
                             return
@@ -957,18 +1430,35 @@ def apply_to_jobs(search_terms: list[str]) -> None:
                     if application_link == "Easy Applied": easy_applied_count += 1
                     else:   external_jobs_count += 1
                     applied_jobs.add(job_id)
+                    buffer(min_job_gap)
 
 
 
                 # Switching to next page
-                if pagination_element == None:
+                if page_buttons is None:
                     print_lg("Couldn't find pagination element, probably at the end page of results!")
                     break
                 try:
-                    pagination_element.find_element(By.XPATH, f"//button[@aria-label='Page {current_page+1}']").click()
-                    print_lg(f"\n>-> Now on Page {current_page+1} \n")
-                except NoSuchElementException:
-                    print_lg(f"\n>-> Didn't find Page {current_page+1}. Probably at the end page of results!\n")
+                    # Re-fetch page buttons fresh to avoid stale element references
+                    # after DOM changes from clicking through job listings
+                    fresh_buttons, _ = get_page_info()
+                    if fresh_buttons is None:
+                        print_lg("Pagination disappeared, probably at the end page of results!")
+                        break
+                    next_page_btn = None
+                    for btn in fresh_buttons:
+                        label = btn.get_attribute("aria-label") or ""
+                        if label == f"Page {current_page + 1}":
+                            next_page_btn = btn
+                            break
+                    if next_page_btn is None:
+                        print_lg(f"\n>-> Didn't find Page {current_page + 1}. Probably at the end page of results!\n")
+                        break
+                    scroll_to_view(driver, next_page_btn)
+                    next_page_btn.click()
+                    print_lg(f"\n>-> Now on Page {current_page + 1} \n")
+                except (NoSuchElementException, StaleElementReferenceException):
+                    print_lg(f"\n>-> Didn't find Page {current_page + 1}. Probably at the end page of results!\n")
                     break
 
         except Exception as e:
@@ -978,9 +1468,20 @@ def apply_to_jobs(search_terms: list[str]) -> None:
             # print_lg(e)
 
         
+def ensure_ai_client() -> None:
+    ''' Reconnects AI client if it was lost (e.g. transient API error on startup) '''
+    global aiClient, userProfile
+    if use_AI and not aiClient:
+        print_lg("AI client is missing — attempting to reconnect...")
+        aiClient = ai_create_openai_client()
+        if aiClient:
+            userProfile = get_user_profile(aiClient, ai_completion, default_resume_path)
+
+
 def run(total_runs: int) -> int:
     if dailyEasyApplyLimitReached:
         return total_runs
+    ensure_ai_client()
     print_lg("\n########################################################################################################################\n")
     print_lg(f"Date and Time: {datetime.now()}")
     print_lg(f"Cycle number: {total_runs}")
@@ -997,7 +1498,6 @@ def run(total_runs: int) -> int:
 
 
 
-chatGPT_tab = False
 linkedIn_tab = False
 
 def main() -> None:
@@ -1006,7 +1506,10 @@ def main() -> None:
         alert_title = "Error Occurred. Closing Browser!"
         total_runs = 1        
         validate_config()
-        
+
+        global driver, wait, actions
+        driver, wait, actions = initialize_driver()
+
         if not os.path.exists(default_resume_path):
             pyautogui.alert(text='Your default resume "{}" is missing! Please update it\'s folder path "default_resume_path" in config.py\n\nOR\n\nAdd a resume with exact name and path (check for spelling mistakes including cases).\n\n\nFor now the bot will continue using your previous upload from LinkedIn!'.format(default_resume_path), title="Missing Resume", button="OK")
             useNewResume = False
@@ -1018,19 +1521,7 @@ def main() -> None:
         
         linkedIn_tab = driver.current_window_handle
 
-        # # Login to ChatGPT in a new tab for resume customization
-        # if use_resume_generator:
-        #     try:
-        #         driver.switch_to.new_window('tab')
-        #         driver.get("https://chat.openai.com/")
-        #         if not is_logged_in_GPT(): login_GPT()
-        #         open_resume_chat()
-        #         global chatGPT_tab
-        #         chatGPT_tab = driver.current_window_handle
-        #     except Exception as e:
-        #         print_lg("Opening OpenAI chatGPT tab failed!")
-        if use_AI:
-            aiClient = ai_create_openai_client()
+        ensure_ai_client()
 
         # Start applying to jobs
         driver.switch_to.window(linkedIn_tab)
@@ -1050,7 +1541,8 @@ def main() -> None:
                 break
         
 
-    except NoSuchWindowException:   pass
+    except NoSuchWindowException:
+        print_lg("Browser window was closed unexpectedly. Exiting.")
     except Exception as e:
         critical_error_log("In Applier Main", e)
         pyautogui.alert(e,alert_title)
@@ -1063,23 +1555,24 @@ def main() -> None:
         print_lg("\nFailed jobs:                    {}".format(failed_count))
         print_lg("Irrelevant jobs skipped:        {}\n".format(skip_count))
         if randomly_answered_questions: print_lg("\n\nQuestions randomly answered:\n  {}  \n\n".format(";\n".join(str(question) for question in randomly_answered_questions)))
-        quote = choice([
-            "You're one step closer than before.", 
-            "All the best with your future interviews.", 
-            "Keep up with the progress. You got this.", 
-            "If you're tired, learn to take rest but never give up.",
-            "Success is not final, failure is not fatal: It is the courage to continue that counts. - Winston Churchill",
-            "Believe in yourself and all that you are. Know that there is something inside you that is greater than any obstacle. - Christian D. Larson",
-            "Every job is a self-portrait of the person who does it. Autograph your work with excellence.",
-            "The only way to do great work is to love what you do. If you haven't found it yet, keep looking. Don't settle. - Steve Jobs",
-            "Opportunities don't happen, you create them. - Chris Grosser",
-            "The road to success and the road to failure are almost exactly the same. The difference is perseverance.",
-            "Obstacles are those frightful things you see when you take your eyes off your goal. - Henry Ford",
-            "The only limit to our realization of tomorrow will be our doubts of today. - Franklin D. Roosevelt"
-            ])
-        msg = f"\n{quote}\n\n\nBest regards,\nTom"
-        pyautogui.alert(msg, "Exiting..")
-        print_lg(msg,"Closing the browser...")
+        # quote = choice([
+        #     "You're one step closer than before.",
+        #     "All the best with your future interviews.",
+        #     "Keep up with the progress. You got this.",
+        #     "If you're tired, learn to take rest but never give up.",
+        #     "Success is not final, failure is not fatal: It is the courage to continue that counts. - Winston Churchill",
+        #     "Believe in yourself and all that you are. Know that there is something inside you that is greater than any obstacle. - Christian D. Larson",
+        #     "Every job is a self-portrait of the person who does it. Autograph your work with excellence.",
+        #     "The only way to do great work is to love what you do. If you haven't found it yet, keep looking. Don't settle. - Steve Jobs",
+        #     "Opportunities don't happen, you create them. - Chris Grosser",
+        #     "The road to success and the road to failure are almost exactly the same. The difference is perseverance.",
+        #     "Obstacles are those frightful things you see when you take your eyes off your goal. - Henry Ford",
+        #     "The only limit to our realization of tomorrow will be our doubts of today. - Franklin D. Roosevelt"
+        #     ])
+        # msg = f"\n{quote}\n\n\nBest regards,\nTom"
+        # pyautogui.alert(msg, "Exiting..")
+        # print_lg(msg,"Closing the browser...")
+        print_lg("Closing the browser...")
         if tabs_count >= 10:
             msg = "NOTE: IF YOU HAVE MORE THAN 10 TABS OPENED, PLEASE CLOSE OR BOOKMARK THEM!\n\nOr it's highly likely that application will just open browser and not do anything next time!" 
             pyautogui.alert(msg,"Info")
