@@ -34,7 +34,7 @@ from modules.helpers import *
 from modules.clickers_and_finders import *
 from modules.validator import validate_config
 from modules.ai.aiConnections import *
-from modules.learned_answers import load_learned_answers, find_learned_answer, save_learned_answer, _similarity
+from modules.learned_answers import find_learned_answer, save_learned_answer, _similarity
 from modules.resumes.extractor import get_user_profile
 
 from typing import Literal
@@ -553,8 +553,14 @@ def capture_manual_answers(modal: WebElement) -> None:
 
         # Text input
         text_el = try_xp(Question, ".//input[@type='text']", False)
+        if not text_el:
+            # LinkedIn sometimes uses non-standard input types for location autocomplete
+            text_el = try_xp(Question, ".//input", False)
         if text_el:
+            # React-controlled inputs: get_attribute("value") may be empty; fall back to DOM property
             val = text_el.get_attribute("value")
+            if not val:
+                val = text_el.get_property("value")
             if val and val.strip():
                 save_learned_answer(label_org, "text", val.strip())
                 print_lg(f'Captured manual text "{label_org}": "{val.strip()}"')
@@ -564,6 +570,8 @@ def capture_manual_answers(modal: WebElement) -> None:
         textarea_el = try_xp(Question, ".//textarea", False)
         if textarea_el:
             val = textarea_el.get_attribute("value")
+            if not val:
+                val = textarea_el.get_property("value")
             if val and val.strip():
                 save_learned_answer(label_org, "textarea", val.strip())
                 print_lg(f'Captured manual textarea "{label_org}": "{val.strip()}"')
@@ -622,8 +630,6 @@ def _retry_ai_answer(client, label: str, options, qtype: str, description: str, 
 # Function to answer the questions for Easy Apply
 def answer_questions(modal: WebElement, questions_list: set, work_location: str, description: str = "Unknown", userProfile: dict = None) -> set:
     # Get all questions from the page
-    learned_answers = load_learned_answers()
-
     all_questions = modal.find_elements(By.CLASS_NAME, "jobs-easy-apply-form-element")
     all_list_questions = modal.find_elements(By.XPATH, ".//div[@data-test-text-entity-list-form-component]")
     all_single_line_questions = modal.find_elements(By.XPATH, ".//div[@data-test-single-line-text-form-component]")
@@ -845,17 +851,42 @@ def answer_questions(modal: WebElement, questions_list: set, work_location: str,
         
         # Check if it's a text question
         text = try_xp(Question, ".//input[@type='text']", False)
-        if text: 
+        if not text:
+            # LinkedIn sometimes renders text inputs without explicit type="text"
+            text = try_xp(Question, ".//input", False)
+            if text:
+                inp_type = (text.get_attribute("type") or "text").lower()
+                if inp_type in ("checkbox", "radio", "hidden", "submit", "file", "button"):
+                    text = False
+        if text:
             do_actions = False
-            label = try_xp(Question, ".//label[@for]", False)
-            try: label = label.find_element(By.CLASS_NAME,'visually-hidden')
+            # Robust label extraction — LinkedIn labels vary wildly (no @for, nested spans, aria-label, etc.)
+            label_org = ""
+            try:
+                label_el = Question.find_element(By.TAG_NAME, "label")
+                span = try_xp(label_el, ".//span", False)
+                label_org = span.text.strip() if span else label_el.text.strip()
             except Exception:
-                pass  # Non-critical: visually-hidden class may not exist on this text input
-            label_org = label.text if label else "Unknown"
+                pass
+            if not label_org:
+                label_el = try_xp(Question, ".//*[@aria-label]", False)
+                if label_el:
+                    label_org = label_el.get_attribute("aria-label").strip()
+            if not label_org:
+                # Last resort: try the old [@for] approach
+                label = try_xp(Question, ".//label[@for]", False)
+                try: label = label.find_element(By.CLASS_NAME, 'visually-hidden')
+                except Exception: pass
+                label_org = label.text if label else "Unknown"
             answer = ""
             label = label_org.lower()
 
-            prev_answer = text.get_attribute("value")
+            prev_answer = text.get_attribute("value") or text.get_property("value") or ""
+            # If the previous answer was a random fallback (label wasn't recognized),
+            # force retry — otherwise the poisoned value locks us into an infinite loop
+            if label_org == "Unknown" and prev_answer:
+                print_lg(f'Text label not recognized — resetting poisoned value "{prev_answer}" to force retry')
+                prev_answer = ""
             if not prev_answer or overwrite_previous_answers:
                 if 'experience' in label or 'years' in label: answer = ""  # Defer to AI — config value used as fallback below
                 elif 'phone' in label or 'mobile' in label: answer = phone_number
@@ -900,7 +931,9 @@ def answer_questions(modal: WebElement, questions_list: set, work_location: str,
                 elif 'state' in label or 'province' in label: answer = state
                 elif 'zip' in label or 'postal' in label or 'code' in label: answer = zipcode
                 elif 'country' in label: answer = country
-                elif 'english' in label or 'language' in label or 'proficiency' in label:
+                elif ('english' in label or 'anglais' in label or 'ingles' in label or 'inglés' in label
+                      or 'language' in label or 'idioma' in label or 'langue' in label or 'sprache' in label
+                      or 'proficiency' in label or 'nivel' in label or 'niveau' in label):
                     lang = "English"
                     for l in ["English", "Spanish", "French"]:
                         if l.lower() in label:
@@ -942,17 +975,34 @@ def answer_questions(modal: WebElement, questions_list: set, work_location: str,
                     sleep(2)
                     actions.send_keys(Keys.ARROW_DOWN)
                     actions.send_keys(Keys.ENTER).perform()
-            questions_list.add((label, text.get_attribute("value"), "text", prev_answer))
+            questions_list.add((label, text.get_attribute("value") or text.get_property("value") or "", "text", prev_answer))
             continue
 
         # Check if it's a textarea question
         text_area = try_xp(Question, ".//textarea", False)
         if text_area:
-            label = try_xp(Question, ".//label[@for]", False)
-            label_org = label.text if label else "Unknown"
+            # Robust label extraction — LinkedIn labels vary wildly (no @for, nested spans, aria-label, etc.)
+            label_org = ""
+            try:
+                label_el = Question.find_element(By.TAG_NAME, "label")
+                span = try_xp(label_el, ".//span", False)
+                label_org = span.text.strip() if span else label_el.text.strip()
+            except Exception:
+                pass
+            if not label_org:
+                label_el = try_xp(Question, ".//*[@aria-label]", False)
+                if label_el:
+                    label_org = label_el.get_attribute("aria-label").strip()
+            if not label_org:
+                label = try_xp(Question, ".//label[@for]", False)
+                label_org = label.text if label else "Unknown"
             label = label_org.lower()
             answer = ""
-            prev_answer = text_area.get_attribute("value")
+            prev_answer = text_area.get_attribute("value") or text_area.get_property("value") or ""
+            # If the previous answer was garbage (label wasn't recognized), force retry
+            if label_org == "Unknown" and prev_answer:
+                print_lg(f'Textarea label not recognized — resetting poisoned value "{prev_answer}" to force retry')
+                prev_answer = ""
             if not prev_answer or overwrite_previous_answers:
                 if 'summary' in label: answer = linkedin_summary
                 elif 'cover' in label:
@@ -988,7 +1038,7 @@ def answer_questions(modal: WebElement, questions_list: set, work_location: str,
                             print_lg(f'Used AI answer for textarea "{label_org}": "{ai_answer}"')
                 if answer == "":
                     randomly_answered_questions.add((label_org, "textarea"))
-            questions_list.add((label, text_area.get_attribute("value"), "textarea", prev_answer))
+            questions_list.add((label, text_area.get_attribute("value") or text_area.get_property("value") or "", "textarea", prev_answer))
             continue
 
         # Check if it's a checkbox question
